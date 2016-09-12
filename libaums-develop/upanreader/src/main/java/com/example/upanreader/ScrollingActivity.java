@@ -1,11 +1,18 @@
 package com.example.upanreader;
 
 import android.app.PendingIntent;
+import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
 import android.support.v7.app.ActionBar;
@@ -17,6 +24,7 @@ import android.view.MenuItem;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ListView;
+import android.widget.Toast;
 
 import com.github.mjdev.libaums.UsbMassStorageDevice;
 import com.github.mjdev.libaums.fs.FileSystem;
@@ -31,13 +39,59 @@ public class ScrollingActivity extends AppCompatActivity implements AdapterView.
     private UsbMassStorageDevice device;
     private Intent serviceIntent = null;
     private UsbFileListAdapter adapter;
+    private UsbFileHttpServerService serverService;
     //private static final String TAG = ScrollingActivity.class.getSimpleName();
     private static final String TAG = "UpanReader";
     private static final String ACTION_USB_PERMISSION = "com.github.mjdev.libaums.USB_PERMISSION";
 
+    private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+
+            String action = intent.getAction();
+            if (ACTION_USB_PERMISSION.equals(action)) {
+
+                UsbDevice device = (UsbDevice) intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+
+                    if (device != null) {
+                        setupDevice();
+                    }
+                }
+
+            } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
+                UsbDevice device = (UsbDevice) intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+
+                Log.d(TAG, "USB device attached");
+
+                // determine if connected device is a mass storage devuce
+                if (device != null) {
+                    discoverDevice();
+                }
+            } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
+                UsbDevice device = (UsbDevice) intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+
+                Log.d(TAG, "USB device detached");
+
+                // determine if connected device is a mass storage devuce
+                if (device != null) {
+                    if (ScrollingActivity.this.device != null) {
+                        ScrollingActivity.this.device.close();
+                    }
+                    // check if there are other devices or set action bar title
+                    // to no device if not
+                    discoverDevice();
+                }
+            }
+
+        }
+    };
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        serviceIntent = new Intent(this, UsbFileHttpServerService.class);
+
         setContentView(R.layout.activity_scrolling);
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
@@ -45,6 +99,11 @@ public class ScrollingActivity extends AppCompatActivity implements AdapterView.
         serviceIntent = new Intent(this, UsbFileHttpServerService.class);
         listView = (ListView) findViewById(R.id.list_view);
         listView.setOnItemClickListener(this);
+
+        IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+        registerReceiver(usbReceiver, filter);
 
         discoverDevice();
 
@@ -120,8 +179,77 @@ public class ScrollingActivity extends AppCompatActivity implements AdapterView.
     }
 
     @Override
-    public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
+    public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+        UsbFile file = adapter.getItem(position);
+        startHttpServer(file);
+    }
 
+    private void startHttpServer(final UsbFile file) {
+
+        Log.d(TAG, "starting HTTP server");
+
+        if(serverService == null) {
+            Toast.makeText(ScrollingActivity.this, "serverService == null!", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        if(serverService.isServerRunning()) {
+            Log.d(TAG, "Stopping existing server service");
+            serverService.stopServer();
+        }
+
+        // now start the server
+        try {
+            serverService.startServer(file);
+            Toast.makeText(ScrollingActivity.this, "HTTP server up and running", Toast.LENGTH_LONG).show();
+        } catch (IOException e) {
+            Log.e(TAG, "Error starting HTTP server", e);
+            Toast.makeText(ScrollingActivity.this, "Could not start HTTP server", Toast.LENGTH_LONG).show();
+        }
+
+        if(file.isDirectory()) {
+            // only open activity when serving a file
+            return;
+        }
+
+        Intent myIntent = new Intent(android.content.Intent.ACTION_VIEW);
+        myIntent.setData(Uri.parse(serverService.getServer().getBaseUrl() + file.getName()));
+        try {
+            startActivity(myIntent);
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(ScrollingActivity.this, "Could no find an app for that file!",
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    ServiceConnection serviceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            Log.d(TAG, "on service connected " + name);
+            UsbFileHttpServerService.ServiceBinder binder = (UsbFileHttpServerService.ServiceBinder) service;
+            serverService = binder.getService();
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            Log.d(TAG, "on service disconnected " + name);
+            serverService = null;
+        }
+    };
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+
+        startService(serviceIntent);
+        bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE);
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+
+        unbindService(serviceConnection);
     }
 
     @Override
