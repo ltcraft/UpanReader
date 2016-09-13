@@ -194,31 +194,34 @@ public class ScrollingActivity extends AppCompatActivity implements AdapterView.
             FileChannel fout = null;
 
             long length = file.getLength();
-            //int capacity = 1024*8;
-            int capacity = 26;
+            /**
+             * capacity的数值不能太小，似乎是应该大于512.设置的数值大了，就没事了。
+             */
+            int capacity = 1024*8;
+            //int capacity = 26;
             ByteBuffer buffer=ByteBuffer.allocate(capacity);
             try {
                 fout = new FileOutputStream(dir).getChannel();
                 long remainLength = length;
                 long finishPosition = 0;
-//                while(remainLength >= 0){
-//                    file.read(finishPosition,buffer);
-//                    buffer.flip();
-//                    if(remainLength<capacity){
-//                        buffer.limit((int)remainLength);
-//                    }
-//                    fout.write(buffer);
-//                    buffer.clear();
-//                    remainLength = remainLength - capacity;
-//                    finishPosition = finishPosition + capacity;
-//                    System.out.println(remainLength);
-//                    System.out.println(dir.toString());
-//                }
+                while(remainLength >= 0){
+                    file.read(finishPosition,buffer);
+                    buffer.flip();
+                    if(remainLength<capacity){
+                        buffer.limit((int)remainLength);
+                    }
+                    fout.write(buffer);
+                    buffer.clear();
+                    remainLength = remainLength - capacity;
+                    finishPosition = finishPosition + capacity;
+                    System.out.println(remainLength);
+                    System.out.println(dir.toString());
+                }
 
-                file.read(5,buffer);
-                buffer.flip();
-                fout.write(buffer);
-                buffer.clear();
+//                file.read(5,buffer);
+//                buffer.flip();
+//                fout.write(buffer);
+//                buffer.clear();
 
                 Toast.makeText(this,"传输完成",Toast.LENGTH_SHORT).show();
 
