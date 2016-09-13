@@ -31,7 +31,11 @@ import com.github.mjdev.libaums.fs.FileSystem;
 import com.github.mjdev.libaums.fs.UsbFile;
 import com.github.mjdev.libaums.server.http.UsbFileHttpServerService;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 
 public class ScrollingActivity extends AppCompatActivity implements AdapterView.OnItemClickListener {
 
@@ -180,8 +184,59 @@ public class ScrollingActivity extends AppCompatActivity implements AdapterView.
 
     @Override
     public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+
+        //FileChannel fin = null;
+
         UsbFile file = adapter.getItem(position);
-        startHttpServer(file);
+        if(!file.isDirectory()){
+            File dir = new File(getExternalFilesDir(null),file.getName());
+            //File dir = getExternalFilesDir(null);
+            FileChannel fout = null;
+
+            long length = file.getLength();
+            //int capacity = 1024*8;
+            int capacity = 26;
+            ByteBuffer buffer=ByteBuffer.allocate(capacity);
+            try {
+                fout = new FileOutputStream(dir).getChannel();
+                long remainLength = length;
+                long finishPosition = 0;
+//                while(remainLength >= 0){
+//                    file.read(finishPosition,buffer);
+//                    buffer.flip();
+//                    if(remainLength<capacity){
+//                        buffer.limit((int)remainLength);
+//                    }
+//                    fout.write(buffer);
+//                    buffer.clear();
+//                    remainLength = remainLength - capacity;
+//                    finishPosition = finishPosition + capacity;
+//                    System.out.println(remainLength);
+//                    System.out.println(dir.toString());
+//                }
+
+                file.read(5,buffer);
+                buffer.flip();
+                fout.write(buffer);
+                buffer.clear();
+
+                Toast.makeText(this,"传输完成",Toast.LENGTH_SHORT).show();
+
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                try {
+                    if(fout != null) {
+                        fout.close();
+                    }
+                } catch(IOException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            //startHttpServer(file);
+        }
+
     }
 
     private void startHttpServer(final UsbFile file) {
